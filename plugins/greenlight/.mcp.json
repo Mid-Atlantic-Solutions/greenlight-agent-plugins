@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "greenlight": {
+      "type": "http",
+      "url": "https://greenlight.maslabor.com/mcp",
+      "alwaysLoad": true
+    }
+  }
+}
