@@ -245,11 +245,14 @@ The standard new-app loop:
    and that branch). Do this through Greenlight, never with `gh` or the GitHub API (see _Source
    control_ below).
 6. **Wait, then merge.** Poll `getPipelineRun` (`greenlight pipeline --pr <n> --wait`) with
-   `pull_request_number` and `wait: true`. Once it passes, merge through Greenlight with
-   `mergePullRequest({ app_id, pull_request_number })` or `greenlight pr merge` — **never** `gh pr merge`
-   or the GitHub API. **The merge is the apply trigger** — it provisions declared resources, reconciles
-   grants, builds and rolls out the workload. Don't stop to ask the user whether to merge: if they
-   asked for the change to go live, a green pipeline is your signal to proceed.
+   `pull_request_number` and `wait: true`. Once it returns `passed`, take its `commit_sha` and merge
+   through Greenlight with `mergePullRequest({ app_id, pull_request_number, expected_head_sha:
+commit_sha })` or `greenlight pr merge` — **never** `gh pr merge` or the GitHub API. Merge fails
+   closed if the PR has moved past that SHA (a new push landed) or that SHA hasn't passed; re-poll
+   `getPipelineRun` on the new head and retry. **The merge is the apply trigger** — it provisions
+   declared resources, reconciles grants, builds and rolls out the workload. Don't stop to ask the
+   user whether to merge: if they asked for the change to go live, a green pipeline is your signal to
+   proceed.
 7. **Observe the deploy, then verify.** Poll `getPipelineRun` again on the merge SHA (`commit_sha`,
    `wait: true`), then `getApp` (`greenlight apps show`) for the live state and deployment URL.
    **Then verify the change actually does what the user asked** (see _Verifying a deployed app_)
@@ -289,7 +292,7 @@ delivers real secret values into a local process, which never crosses MCP. The m
   merge the app has no grants or resources of its own, so request what the app needs under your own
   identity (`requestCredentialAccess`) and build the whole thing locally against real proxied data.
   The same mode covers no-app work — scripts, notebooks, data exploration. It never injects
-  `DATABASE_URL` or `STORAGE_SAS_URL` (app resources are app-scoped).
+  `DATABASE_URL` or `STORAGE_ACCESS_URL` (app resources are app-scoped).
 - **App mode — `greenlight run --app <app_id> -- <your dev command>`** (e.g.
   `greenlight run --app 3f25… -- npm run dev`) resolves the **app's** env contract server-side —
   the same grants the deployed pod runs on, so local access mirrors production exactly. The
@@ -341,7 +344,7 @@ the grant is the gate. At MVP:
 - **Granted injected integration** → the real credential, in-process. Live.
 - **User-delegated integration** → no laptop actor token exists; author a fixture.
 - **App's own Postgres** → a local fixture database; `DATABASE_URL` is not injected locally.
-- **Blob** → a freshly minted short-TTL SAS. Live (app mode only).
+- **Blob** → a freshly minted short-TTL credential. Live (app mode only).
 
 For anything still fixture-only — a manual-approval credential, a declined personal request, or an
 unreachable control plane (corporate egress block) — write your own fixtures/mocks for that
@@ -514,7 +517,7 @@ rejects them as reserved.
 | If the manifest declares…                         | The pod receives…                                               |
 | ------------------------------------------------- | --------------------------------------------------------------- |
 | `resources:` with `kind: postgres`                | `DATABASE_URL`                                                  |
-| `resources:` with `kind: blob`                    | `STORAGE_SAS_URL`, `STORAGE_CONTAINER_NAME`                     |
+| `resources:` with `kind: blob`                    | `STORAGE_ACCESS_URL`, `STORAGE_CONTAINER_NAME`                  |
 | a `grants:` entry for a **proxied** integration   | `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`                   |
 | a `grants:` entry for an **injected** integration | that integration's credential, under its own fixed env-var name |
 | an `ai_*` grant _(post-MVP)_                      | `GREENLIGHT_AI_KEY`, `GREENLIGHT_AI_BASE_URL`                   |
@@ -529,7 +532,9 @@ app gets.** A grant awaiting IT approval (`status: pending`, `approval_mode: man
 redeploys, and a pending injected grant does **not** give the app `GREENLIGHT_DATA_KEY` (that is only
 for proxied grants). `getApp`/`envList` reflect this — a pending injected grant shows its
 `env_var_name` on the grant but does not list it as a managed name. The fixed reserved set — rejected by `envSet` and the manifest validator regardless of
-what the app declares — is `DATABASE_URL`, `STORAGE_SAS_URL`, `STORAGE_CONTAINER_NAME`,
+what the app declares — is `DATABASE_URL`, `STORAGE_ACCESS_URL`, `STORAGE_ACCESS_TOKEN`,
+`STORAGE_ENDPOINT`, `STORAGE_CONTAINER_NAME`, `STORAGE_SAS_URL` (Azure legacy alias for
+`STORAGE_ACCESS_URL`, deprecation-window only — prefer `STORAGE_ACCESS_URL`),
 `GREENLIGHT_DATA_KEY`, `GREENLIGHT_PROXY_URL`, `PORT`, `GREENLIGHT_AI_KEY`,
 `GREENLIGHT_AI_BASE_URL`, `PUBLIC_BASE_URL`, `DEV_USER_EMAIL`, `DEV_USER_GROUPS`; each injected
 integration additionally reserves its own env-var name per-app. User-declared names must match
@@ -757,7 +762,8 @@ yourself. The governed change request then goes through MCP:
 - **Open** with `createPullRequest` **after your feature branch is pushed** — an unpushed branch
   has no commits to propose. Pass `app_id` and the head branch; Greenlight resolves the repo.
 - **Merge** with `mergePullRequest` only after you have observed a passing pipeline for the exact
-  head SHA. Direct pushes to `main` are blocked by branch protection.
+  head SHA — pass it as `expected_head_sha`; merge fails closed if the PR moved past it or that SHA
+  didn't pass. Direct pushes to `main` are blocked by branch protection.
 
 Do **not** use `gh`, the GitHub API, or any other path to open or merge a PR — the change must flow
 through Greenlight so it is audited and policy-gated.
