@@ -160,6 +160,16 @@ rules, call `getPolicies()` — it returns each check with its enforcement level
 such as the approved base-image list, so you can satisfy the gate before pushing rather than
 after it fails. A check reporting `inactive_reason` will not fire, so do not code around it.
 
+**Required org Knowledge is binding.** `registerApp` and `getApp` return `required_knowledge`:
+the org entries IT marked required for every app, with their full bodies (`knowledgeList` and
+`knowledgeGet` also mark them `required: true`). Read every one before you write code and follow
+it in full; a required `design-system` entry decides the app's fonts, colours, logo and
+components, not your defaults. If the user asks you to deviate from a required entry, don't. Tell
+them IT requires it for every app, and that an IT admin can change or lift it in the dashboard
+under Knowledge. Entries that are not required are guidance: follow them by default, and when the
+user chooses to deviate, do what they asked and say in the PR description which guidance you
+departed from.
+
 **Never invent the company's mark.** Wherever an app shows the **organization's** logo,
 wordmark, or favicon — a header, a login screen, a nav bar, a footer, a favicon — look up the real
 one and use it:
@@ -651,12 +661,12 @@ Grants are request signals, not merge blockers: an auto-approved grant works the
 merges; an IT-required grant deploys in `pending` and the proxy returns `403` for it until IT
 approves out of band (no redeploy needed). Watch grant status in `getApp`.
 
-**The provisioned `postgres` resource is a managed PostgreSQL 16 server — Azure Database for
+**The provisioned `postgres` resource is a managed PostgreSQL server (16 or later) — Azure Database for
 PostgreSQL on Azure, Cloud SQL on GCP, RDS on AWS — and `CREATE EXTENSION` is not allowed for app
 users** — a migration that runs
 `CREATE EXTENSION pgcrypto` (or `uuid-ossp`) passes the build and then crash-loops the pod on
-first boot. Write schemas that need no extensions: `gen_random_uuid()` is built into Postgres 16
-core (no pgcrypto required), or generate ids in app code (`crypto.randomUUID()`).
+first boot. Write schemas that need no extensions: `gen_random_uuid()` is built into Postgres
+core since 13 (no pgcrypto required), or generate ids in app code (`crypto.randomUUID()`).
 
 ## Personal data access (no app needed)
 
